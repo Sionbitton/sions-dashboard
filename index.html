@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sion's Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ===== LOGIN SCREEN ===== -->
+  <!-- This is shown first. When the user clicks "Login",
+       JavaScript hides this screen and shows the dashboard. -->
+  <section id="login-screen" class="login-screen">
+    <div class="login-card">
+      <h1 class="login-title">Welcome Back</h1>
+      <p class="login-subtitle">Sign in to your personal dashboard</p>
+
+      <form id="login-form" class="login-form">
+        <label for="username">Username</label>
+        <input type="text" id="username" placeholder="Enter username" required />
+
+        <label for="password">Password</label>
+        <input type="password" id="password" placeholder="Enter password" required />
+
+        <button type="submit" class="btn btn-primary">Login</button>
+        <p class="login-hint">(Demo only — any username and password will work)</p>
+      </form>
+    </div>
+  </section>
+
+
+  <!-- ===== WELCOME / CHECK-IN SCREEN =====
+       Shown right after login (and on refresh if already logged in).
+       Lets the user quickly add a single item before entering the
+       full dashboard. The "Go to Dashboard" button hides this
+       screen and reveals the dashboard. -->
+  <section id="welcome-screen" class="welcome-screen hidden">
+    <div class="welcome-card">
+      <h1 class="welcome-title">Hello Sion. Take a breath.</h1>
+      <p class="welcome-subtitle">What do you want to do today?</p>
+
+      <!-- Quick-add form. Same fields as the main item form so the
+           shape of the saved object is identical. -->
+      <form id="welcome-form" class="welcome-form">
+        <label for="welcome-item-title">Title</label>
+        <input type="text" id="welcome-item-title" placeholder="e.g. Plan tomorrow's workout" required />
+
+        <label for="welcome-item-category">Category</label>
+        <select id="welcome-item-category" required>
+          <option value="Dashboard">Dashboard</option>
+          <option value="Calendar">Calendar</option>
+          <option value="Learning">Learning</option>
+          <option value="Schedule">Schedule</option>
+          <option value="Goals">Goals</option>
+          <option value="Health/Gym">Health/Gym</option>
+          <option value="Addiction Tracker">Addiction Tracker</option>
+          <option value="eBay Tracker / Selling">eBay Tracker / Selling</option>
+          <option value="Notes" selected>Notes</option>
+        </select>
+
+        <!-- Category suggestion banner — populated by JS when title/description
+             keywords look like a different (or new) category. Hidden by default. -->
+        <div id="welcome-suggestion-banner" class="suggestion-banner hidden">
+          <span id="welcome-suggestion-text" class="suggestion-text"></span>
+          <div class="suggestion-actions">
+            <button type="button" id="welcome-suggestion-accept" class="btn btn-edit">Use it</button>
+            <button type="button" id="welcome-suggestion-dismiss" class="btn btn-ghost">Dismiss</button>
+          </div>
+        </div>
+
+        <label for="welcome-item-description">Description</label>
+        <textarea id="welcome-item-description" rows="3" placeholder="Add some details..."></textarea>
+
+        <!-- Item type checkboxes — multiple may be selected. Stored as an
+             itemTypes array on the saved item (e.g. ["Task", "Reminder"]). -->
+        <fieldset class="item-types">
+          <legend>Is this a task, reminder, or calendar item?</legend>
+          <label><input type="checkbox" data-item-type value="Task"> Task</label>
+          <label><input type="checkbox" data-item-type value="Reminder"> Reminder</label>
+          <label><input type="checkbox" data-item-type value="Calendar"> Calendar</label>
+        </fieldset>
+
+        <label for="welcome-item-date">Date</label>
+        <input type="date" id="welcome-item-date" />
+
+        <label for="welcome-item-status">Status</label>
+        <select id="welcome-item-status" required>
+          <option value="Not Started">Not Started</option>
+          <option value="In Progress">In Progress</option>
+          <option value="Completed">Completed</option>
+        </select>
+
+        <!-- Save-as-draft override: if checked, force detailStatus to
+             "Needs Details" regardless of what the auto rule would say. -->
+        <label class="draft-checkbox">
+          <input type="checkbox" id="welcome-item-draft">
+          Save as draft (Needs Details)
+        </label>
+
+        <!-- Inline feedback after a successful add (auto-hides). -->
+        <p id="welcome-feedback" class="welcome-feedback hidden"></p>
+
+        <!-- Soft re-entry hint: how many items are waiting in the dashboard.
+             Populated by updateWelcomeSummaryHint() each time we land here. -->
+        <p id="welcome-summary-hint" class="welcome-summary-hint hidden"></p>
+
+        <!-- Submit adds the item; the second button skips to the dashboard. -->
+        <div class="welcome-actions">
+          <button type="submit" class="btn btn-primary">Add Item</button>
+          <button type="button" id="goto-dashboard-btn" class="btn btn-ghost">Go to Dashboard</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+
+  <!-- ===== DASHBOARD ===== -->
+  <!-- Hidden by default. Shown after the user clicks "Go to Dashboard". -->
+  <section id="dashboard" class="dashboard hidden">
+
+    <!-- Top header -->
+    <header class="dashboard-header">
+      <h1 class="dashboard-title">Sion's Dashboard</h1>
+
+      <!-- Backup + logout actions -->
+      <div class="header-actions">
+        <button id="manage-categories-btn" class="btn btn-ghost">Manage Categories</button>
+        <button id="export-btn" class="btn btn-ghost">Export Backup</button>
+        <button id="import-btn" class="btn btn-ghost">Import Backup</button>
+        <!-- Hidden file picker — opened by clicking the Import button -->
+        <input
+          type="file"
+          id="import-input"
+          accept="application/json,.json"
+          class="hidden"
+        />
+        <button id="logout-btn" class="btn btn-ghost">Logout</button>
+      </div>
+    </header>
+
+    <!-- ===== SUMMARY (counts of all items across all categories) ===== -->
+    <!-- Numbers are filled in by JavaScript inside updateSummary(). -->
+    <section class="summary">
+      <div class="stat">
+        <div class="stat-label">Total Items</div>
+        <div class="stat-value" id="stat-total">0</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Not Started</div>
+        <div class="stat-value stat-not-started" id="stat-not-started">0</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">In Progress</div>
+        <div class="stat-value stat-in-progress" id="stat-in-progress">0</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Completed</div>
+        <div class="stat-value stat-completed" id="stat-completed">0</div>
+      </div>
+    </section>
+
+    <!-- Category tabs (clicking one filters the items list).
+         The .tab-count span shows how many items are in that category;
+         JS populates the number inside updateTabCounts(). -->
+    <nav class="categories">
+      <button class="category-tab active" data-category="Dashboard">
+        Dashboard <span class="tab-count">0</span>
+      </button>
+      <button class="category-tab" data-category="Calendar">
+        Calendar <span class="tab-count">0</span>
+      </button>
+      <button class="category-tab" data-category="Learning">
+        Learning <span class="tab-count">0</span>
+      </button>
+      <button class="category-tab" data-category="Schedule">
+        Schedule <span class="tab-count">0</span>
+      </button>
+      <button class="category-tab" data-category="Goals">
+        Goals <span class="tab-count">0</span>
+      </button>
+      <button class="category-tab" data-category="Health/Gym">
+        Health/Gym <span class="tab-count">0</span>
+      </button>
+      <button class="category-tab" data-category="Addiction Tracker">
+        Addiction Tracker <span class="tab-count">0</span>
+      </button>
+      <button class="category-tab" data-category="eBay Tracker / Selling">
+        eBay Tracker / Selling <span class="tab-count">0</span>
+      </button>
+      <button class="category-tab" data-category="Notes">
+        Notes <span class="tab-count">0</span>
+      </button>
+    </nav>
+
+    <!-- ===== MANAGE CATEGORIES PANEL =====
+         Toggled by the header's "Manage Categories" button.
+         Lets the user add, rename, delete, and restore categories.
+         Hidden by default. JS rebuilds the list inside on every change. -->
+    <section id="categories-panel" class="categories-panel hidden">
+      <div class="categories-panel-header">
+        <h3 class="categories-panel-title">Manage Categories</h3>
+        <button id="restore-categories-btn" class="btn btn-ghost">Restore Defaults</button>
+      </div>
+
+      <!-- Quick form to add a new category -->
+      <form id="add-category-form" class="add-category-form">
+        <input type="text" id="new-category-input" placeholder="New category name..." required />
+        <button type="submit" class="btn btn-primary">Add</button>
+      </form>
+
+      <!-- Each <li> rendered by JS: name + Rename + Delete buttons.
+           "Dashboard" is shown as locked (no rename/delete buttons). -->
+      <ul id="category-list" class="category-list"></ul>
+    </section>
+
+    <!-- Main grid: form on the left, saved items on the right -->
+    <div class="dashboard-grid">
+
+      <!-- ===== ADD / EDIT ITEM FORM ===== -->
+      <!-- The same form is reused for both adding and editing.
+           JavaScript switches the heading + button text when editing. -->
+      <div class="card form-card">
+        <h2 class="card-title" id="form-title">Add New Item</h2>
+
+        <!-- Edit-mode banner. Hidden in normal "Add" mode. JS fills in the
+             item title and reveals/hides this when entering/leaving edit mode. -->
+        <p id="editing-message" class="editing-message hidden"></p>
+
+        <form id="item-form" class="item-form">
+          <label for="item-title">Title</label>
+          <input type="text" id="item-title" placeholder="e.g. Learn JavaScript" required />
+
+          <label for="item-category">Category</label>
+          <select id="item-category" required>
+            <option value="Dashboard">Dashboard</option>
+            <option value="Calendar">Calendar</option>
+            <option value="Learning">Learning</option>
+            <option value="Schedule">Schedule</option>
+            <option value="Goals">Goals</option>
+            <option value="Health/Gym">Health/Gym</option>
+            <option value="Addiction Tracker">Addiction Tracker</option>
+            <option value="eBay Tracker / Selling">eBay Tracker / Selling</option>
+            <option value="Notes">Notes</option>
+          </select>
+
+          <!-- Category suggestion banner — same behavior as the welcome form's. -->
+          <div id="suggestion-banner" class="suggestion-banner hidden">
+            <span id="suggestion-text" class="suggestion-text"></span>
+            <div class="suggestion-actions">
+              <button type="button" id="suggestion-accept" class="btn btn-edit">Use it</button>
+              <button type="button" id="suggestion-dismiss" class="btn btn-ghost">Dismiss</button>
+            </div>
+          </div>
+
+          <label for="item-description">Description</label>
+          <textarea id="item-description" rows="3" placeholder="Add some details..."></textarea>
+
+          <!-- Item type checkboxes (multi-select) -->
+          <fieldset class="item-types">
+            <legend>Is this a task, reminder, or calendar item?</legend>
+            <label><input type="checkbox" data-item-type value="Task"> Task</label>
+            <label><input type="checkbox" data-item-type value="Reminder"> Reminder</label>
+            <label><input type="checkbox" data-item-type value="Calendar"> Calendar</label>
+          </fieldset>
+
+          <label for="item-date">Date</label>
+          <input type="date" id="item-date" />
+
+          <label for="item-status">Status</label>
+          <select id="item-status" required>
+            <option value="Not Started">Not Started</option>
+            <option value="In Progress">In Progress</option>
+            <option value="Completed">Completed</option>
+          </select>
+
+          <!-- Save-as-draft override: if checked, force detailStatus to
+               "Needs Details" regardless of what the auto rule would say. -->
+          <label class="draft-checkbox">
+            <input type="checkbox" id="item-draft">
+            Save as draft (Needs Details)
+          </label>
+
+          <!-- Inline confirmation after a successful add/update (auto-hides).
+               Shares the .welcome-feedback look so success messages feel
+               consistent across the welcome and dashboard forms. -->
+          <p id="dashboard-feedback" class="welcome-feedback hidden"></p>
+
+          <!-- Form actions: submit + (when editing) cancel -->
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary" id="submit-btn">Add Item</button>
+            <button type="button" class="btn btn-ghost hidden" id="cancel-edit-btn">Cancel</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- ===== SAVED ITEMS LIST ===== -->
+      <div class="card items-card">
+        <h2 class="card-title">
+          <span id="current-category-label">Dashboard</span> Items
+        </h2>
+
+        <!-- Search bar — filters by title and description, live as you type -->
+        <input
+          type="text"
+          id="search-input"
+          class="search-input"
+          placeholder="Search items..."
+        />
+
+        <!-- Status filter pills (which items are visible by status) -->
+        <div class="filters" id="filters">
+          <button class="filter-pill active" data-filter="All">All</button>
+          <button class="filter-pill" data-filter="Not Started">Not Started</button>
+          <button class="filter-pill" data-filter="In Progress">In Progress</button>
+          <button class="filter-pill" data-filter="Completed">Completed</button>
+        </div>
+
+        <!-- Sort control — changes only the visible order of items -->
+        <div class="sort-row">
+          <label for="sort-select" class="sort-label">Sort by</label>
+          <select id="sort-select" class="sort-select">
+            <option value="newest">Newest First</option>
+            <option value="oldest">Oldest First</option>
+            <option value="date-soonest">Date: Soonest First</option>
+            <option value="date-latest">Date: Latest First</option>
+            <option value="title-asc">Title: A-Z</option>
+            <option value="title-desc">Title: Z-A</option>
+            <option value="status">Status</option>
+          </select>
+        </div>
+
+        <!-- Items are rendered here by JavaScript -->
+        <div id="items-list" class="items-list">
+          <!-- Item cards get inserted here -->
+        </div>
+
+        <!-- Shown when there are no items in the current category -->
+        <p id="empty-state" class="empty-state">
+          No items here yet. Add your first one!
+        </p>
+      </div>
+
+    </div>
+  </section>
+
+  <script src="script.js"></script>
+</body>
+</html>
