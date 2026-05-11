@@ -20,7 +20,6 @@ const welcomeFeedback  = document.getElementById('welcome-feedback');
 const gotoDashboardBtn = document.getElementById('goto-dashboard-btn');
 
 // Manage Categories elements (the panel + its controls)
-const categoriesNav         = document.querySelector('.categories');
 const manageCategoriesBtn   = document.getElementById('manage-categories-btn');
 const categoriesPanel       = document.getElementById('categories-panel');
 const addCategoryForm       = document.getElementById('add-category-form');
@@ -28,12 +27,19 @@ const newCategoryInput      = document.getElementById('new-category-input');
 const categoryList          = document.getElementById('category-list');
 const restoreCategoriesBtn  = document.getElementById('restore-categories-btn');
 
+// Sidebar nav (Phase 2 — replaces the old top tab `.categories` nav).
+// The container holds two <ul>s: "Main" + a collapsible "More".
+const sidebar            = document.getElementById('sidebar');
+const sidebarMainList    = document.getElementById('sidebar-main');
+const sidebarMoreList    = document.getElementById('sidebar-more');
+const sidebarMoreToggle  = document.getElementById('sidebar-more-toggle');
+
 const itemForm      = document.getElementById('item-form');
 const itemsList     = document.getElementById('items-list');
 const emptyState    = document.getElementById('empty-state');
 const categoryLabel = document.getElementById('current-category-label');
-// `categoryTabs` is rebuilt on every category change, so it's `let`, not `const`.
-let categoryTabs    = document.querySelectorAll('.category-tab');
+// `sidebarItems` is rebuilt on every category change, so it's `let`, not `const`.
+let sidebarItems    = document.querySelectorAll('.sidebar-item');
 
 // Edit feature elements
 const formTitle      = document.getElementById('form-title');
@@ -48,8 +54,10 @@ const dashboardFeedback = document.getElementById('dashboard-feedback');
 // Re-entry hint on the welcome screen ("X items waiting...")
 const welcomeSummaryHint = document.getElementById('welcome-summary-hint');
 
-// Status filter elements
-const filterPills   = document.querySelectorAll('.filter-pill');
+// Status filter container — clicks are handled via event delegation
+// because the chips inside are rendered statically but we want one
+// listener regardless of how many chips exist.
+const statFiltersContainer = document.getElementById('stat-filters');
 
 // Search input
 const searchInput   = document.getElementById('search-input');
@@ -312,11 +320,15 @@ importInput.addEventListener('change', (event) => {
       );
       if (!confirmed) return;
 
+      // Audit BEFORE normalizing so we can tell the user how many
+      // legacy items got upgraded as part of the import.
+      const audit = auditMigration(parsed);
+
       // Run every imported item through normalizeItem() so:
       //   - createdAt is guaranteed
       //   - old categories are renamed (eBay Tracker -> eBay Tracker / Selling)
       //   - itemTypes is sanitized (invalid values dropped, deduped)
-      //   - detailStatus is recomputed from the current fields
+      //   - isDraft / detailStatus are filled in (computed from fields)
       const normalized = parsed.map(normalizeItem);
 
       items = normalized;
@@ -331,7 +343,28 @@ importInput.addEventListener('change', (event) => {
       }
 
       renderItems();
-      alert(`Successfully imported ${items.length} item(s).`);
+
+      // Tailor the success message so the user can SEE that older items
+      // were upgraded — addresses the "is migration actually working?"
+      // question without needing DevTools.
+      if (audit) {
+        const upgraded = Math.max(
+          audit.missingItemTypes,
+          audit.missingIsDraft,
+          audit.missingDetailStatus
+        );
+        console.info(
+          `[Sion's Dashboard] Migrated imported items to current shape.`,
+          audit
+        );
+        alert(
+          `Successfully imported ${items.length} item(s). ` +
+          `${upgraded} older item(s) were upgraded to the current shape ` +
+          `(itemTypes, isDraft, detailStatus).`
+        );
+      } else {
+        alert(`Successfully imported ${items.length} item(s).`);
+      }
     } catch (err) {
       alert(`Import failed: ${err.message}`);
     } finally {
@@ -369,42 +402,49 @@ function validateImportedItems(data) {
 
 
 /* ----------------------------------------------------------
-   4) CATEGORY TABS
-   - Clicking a tab changes "currentCategory" and re-renders.
+   4) SIDEBAR NAV (Phase 2)
+   - Clicking a sidebar item changes "currentCategory" and re-renders.
+   - Event delegation on the #sidebar container so we don't re-attach
+     listeners every time renderSidebar() rebuilds the items.
    ---------------------------------------------------------- */
-// Use event delegation on the parent .categories nav so we don't have to
-// re-attach listeners every time renderCategoryTabs() rebuilds the buttons.
-categoriesNav.addEventListener('click', (e) => {
-  const tab = e.target.closest('.category-tab');
-  if (!tab || !categoriesNav.contains(tab)) return;
+sidebar.addEventListener('click', (e) => {
+  const item = e.target.closest('.sidebar-item');
+  if (!item || !sidebar.contains(item)) return;
 
-  // Visual: remove "active" from all, add to clicked one
-  categoryTabs.forEach(t => t.classList.remove('active'));
-  tab.classList.add('active');
+  // Visual: remove "active" from every sidebar item, add to clicked one
+  sidebarItems.forEach(it => it.classList.remove('active'));
+  item.classList.add('active');
 
   // Update state and re-render
-  currentCategory = tab.dataset.category;
+  currentCategory = item.dataset.category;
   categoryLabel.textContent = currentCategory;
   renderItems();
 
   // Pre-select the active category in the form so adding a new item
-  // under this tab doesn't require touching the dropdown.
+  // under this sidebar item doesn't require touching the dropdown.
   syncCategoryDropdownToTab();
 });
 
 
 /* ----------------------------------------------------------
-   4b) STATUS FILTER PILLS
-   - Clicking a pill changes "currentStatusFilter" and re-renders.
-   - "All" means no filtering by status.
+   4b) STATUS STAT-FILTERS (Phase 2)
+   - Replaces the old filter-pill row + the big summary cards.
+   - Clicking a chip changes "currentStatusFilter" and re-renders.
+   - data-filter="All" means no filtering by status (the "Total" chip).
+   - Event delegation on #stat-filters so adding/removing chips later
+     doesn't require re-wiring listeners.
    ---------------------------------------------------------- */
-filterPills.forEach(pill => {
-  pill.addEventListener('click', () => {
-    filterPills.forEach(p => p.classList.remove('active'));
-    pill.classList.add('active');
-    currentStatusFilter = pill.dataset.filter;
-    renderItems();
-  });
+statFiltersContainer.addEventListener('click', (e) => {
+  const btn = e.target.closest('.stat-filter');
+  if (!btn || !statFiltersContainer.contains(btn)) return;
+
+  statFiltersContainer.querySelectorAll('.stat-filter').forEach(b =>
+    b.classList.remove('active')
+  );
+  btn.classList.add('active');
+
+  currentStatusFilter = btn.dataset.filter;
+  renderItems();
 });
 
 
@@ -495,20 +535,30 @@ itemForm.addEventListener('submit', (e) => {
   itemForm.reset();
 
   // Inline confirmation under the form (mirrors the welcome screen).
-  // Word the message so drafts are obviously drafts, even when no
-  // status/details have been filled in.
-  const draftSuffix = formData.isDraft ? ' (Draft)' : '';
+  // Suffix marks the item as Needs Details so the user can tell at a
+  // glance whether their save was a "finish later" or a complete save.
+  const needsDetailsSuffix = formData.isDraft ? ' (Needs Details)' : '';
   showDashboardFeedback(
     wasEditing
-      ? `Updated "${formData.title}"${draftSuffix}.`
-      : `Added "${formData.title}" to ${formData.category}${draftSuffix}.`
+      ? `Updated "${formData.title}"${needsDetailsSuffix}.`
+      : `Added "${formData.title}" to ${formData.category}${needsDetailsSuffix}.`
   );
 
   // Jump to the relevant category so the user sees the saved item.
+  // Two special cases keep the user where they are:
+  //   - Dashboard tab shows ALL items, so a save is always visible.
+  //   - Drafts tab shows Needs-Details items (excluding Completed), so
+  //     we stay only if the saved item would actually appear here.
   // (switchToCategory triggers the tab click handler, which itself
   // calls syncCategoryDropdownToTab — so we only sync explicitly in
   // the "no tab change" branch.)
-  if (targetCategory !== currentCategory) {
+  const stayOnDashboard = currentCategory === 'Dashboard';
+  const stayOnDrafts    = currentCategory === 'Drafts' && isDraftLike(formData);
+
+  if (stayOnDashboard || stayOnDrafts) {
+    renderItems();
+    syncCategoryDropdownToTab();
+  } else if (targetCategory !== currentCategory) {
     switchToCategory(targetCategory);
   } else {
     renderItems();
@@ -580,8 +630,8 @@ function startEdit(id) {
   // Flip the form into edit mode
   editingId = id;
   formTitle.textContent  = 'Edit Item';
-  // Submit button label respects the draft checkbox state we just
-  // restored above ("Save Draft Changes" vs "Save Changes").
+  // Submit button label respects the Needs Details checkbox state we
+  // just restored above ("Save Changes (Needs Details)" vs "Save Changes").
   updateSubmitButtonText();
   cancelEditBtn.classList.remove('hidden');
 
@@ -596,8 +646,8 @@ function startEdit(id) {
 function exitEditMode() {
   editingId = null;
   formTitle.textContent  = 'Add New Item';
-  // Submit button reverts to "Add Item" / "Save Draft" depending on
-  // whether the draft checkbox is currently ticked.
+  // Submit button reverts to "Add Item" / "Save (Needs Details)" depending
+  // on whether the Mark-as-Needs-Details checkbox is currently ticked.
   updateSubmitButtonText();
   cancelEditBtn.classList.add('hidden');
   // Hide the "Editing: ..." banner
@@ -625,11 +675,36 @@ cancelEditBtn.addEventListener('click', () => {
    - Then: refresh summary numbers and tab count badges.
      (Both read raw `items`, so they ignore filters/search/sort.)
    ---------------------------------------------------------- */
+// Predicate used by the Drafts view filter, the Drafts count badge,
+// AND the scoped stat-filter counts when viewing Drafts. Single source
+// of truth so list, badges, and counts always agree.
+//
+// Rule: an item is "Needs Details" in the user-facing sense if its
+// detailStatus is "Needs Details" AND it's not Completed. We exclude
+// Completed because a finished item shouldn't sit in the Drafts queue
+// regardless of how sparse its fields are — once it's done, it's done.
+// (`isDraft` is preserved as an internal field for backward compat,
+// but it's no longer surfaced as a separate "Draft" concept in the UI.)
+function isDraftLike(item) {
+  if (item.status === 'Completed') return false;
+  return item.detailStatus === 'Needs Details';
+}
+
 function renderItems() {
   itemsList.innerHTML = '';
 
-  // Step 1: filter by category
-  let filtered = items.filter(item => item.category === currentCategory);
+  // Step 1: filter by category — with two special "view" tabs.
+  //   - "Dashboard"  -> show ALL items (home / everything view)
+  //   - "Drafts"     -> show items that are drafts or auto-flagged Needs Details
+  //   - anything else -> normal category filter
+  let filtered;
+  if (currentCategory === 'Dashboard') {
+    filtered = [...items];
+  } else if (currentCategory === 'Drafts') {
+    filtered = items.filter(isDraftLike);
+  } else {
+    filtered = items.filter(item => item.category === currentCategory);
+  }
 
   // Step 2: also filter by status (skip if "All" is selected)
   if (currentStatusFilter !== 'All') {
@@ -663,6 +738,8 @@ function renderItems() {
       msg = `No items match "${currentSearchQuery}".`;
     } else if (hasStatus) {
       msg = `No ${currentStatusFilter} items in ${currentCategory}.`;
+    } else if (currentCategory === 'Drafts') {
+      msg = 'No drafts right now. Everything has its details — nice.';
     } else {
       msg = 'No items here yet. Add your first one!';
     }
@@ -682,15 +759,22 @@ function renderItems() {
 
       // Build extra badges:
       //   - one .type-badge per saved itemType (Task / Reminder / Calendar)
-      //   - .detail-status pill if the item is flagged Needs Details
+      //   - .detail-status pill if the item is a draft or flagged Needs Details
       //   - .needs-details-row under the meta with a friendlier hint
       //     plus an "Add Details" shortcut button that opens edit mode.
       const safeTypes = sanitizeItemTypes(item.itemTypes);
       const typeBadgesHtml = safeTypes
         .map(t => `<span class="type-badge">${escapeHtml(t)}</span>`)
         .join('');
-      const needsDetails = item.detailStatus === 'Needs Details';
-      const needsDetailsBadgeHtml = needsDetails
+
+      // Single user-facing concept: "Needs Details" (no separate "Draft"
+      // label in the UI — see isDraftLike() above for the rationale).
+      // Reusing the predicate keeps the card badge, the Drafts view
+      // filter, the Drafts count, and the scoped stat-filter counts
+      // all driven by the same rule — completed items NEVER carry the
+      // Needs Details treatment, even if isDraft === true.
+      const needsDetails = isDraftLike(item);
+      const detailBadgeHtml = needsDetails
         ? `<span class="detail-status">Needs Details</span>`
         : '';
       const needsDetailsRowHtml = needsDetails
@@ -699,6 +783,10 @@ function renderItems() {
              <button class="btn btn-add-details" data-id="${item.id}">Add Details</button>
            </div>`
         : '';
+
+      // Visual accent on the whole card so Needs Details items pop without
+      // having to scan the badges row.
+      if (needsDetails) card.classList.add('needs-details');
 
       card.innerHTML = `
         <div class="item-header">
@@ -715,7 +803,7 @@ function renderItems() {
           ${item.date ? `<span class="item-date">📅 ${item.date}</span>` : ''}
           <span class="status ${statusClass}">${item.status}</span>
           ${typeBadgesHtml}
-          ${needsDetailsBadgeHtml}
+          ${detailBadgeHtml}
         </div>
         ${needsDetailsRowHtml}
       `;
@@ -745,15 +833,31 @@ function renderItems() {
 
 
 /* ----------------------------------------------------------
-   7b) UPDATE SUMMARY
-   - Counts items by status across ALL categories and
-     fills the four stat cards at the top of the page.
+   7b) UPDATE SUMMARY  (now: stat-filter counts)
+   - Counts items by status WITHIN the current view, so the numbers
+     on the stat-filter chips reflect exactly what could appear in
+     the items list right now. Uses the same scoping rule as the
+     category filter in renderItems().
+   - The status filter pill itself is NOT applied here — otherwise
+     "Not Started" would always show its own count and zero for the
+     others, defeating the purpose of clickable filters.
    ---------------------------------------------------------- */
 function updateSummary() {
-  const total       = items.length;
-  const notStarted  = items.filter(i => i.status === 'Not Started').length;
-  const inProgress  = items.filter(i => i.status === 'In Progress').length;
-  const completed   = items.filter(i => i.status === 'Completed').length;
+  // Scope = items in the current view (Dashboard = all, Drafts =
+  // draft-like, otherwise = items in that category).
+  let scope;
+  if (currentCategory === 'Dashboard') {
+    scope = items;
+  } else if (currentCategory === 'Drafts') {
+    scope = items.filter(isDraftLike);
+  } else {
+    scope = items.filter(i => i.category === currentCategory);
+  }
+
+  const total       = scope.length;
+  const notStarted  = scope.filter(i => i.status === 'Not Started').length;
+  const inProgress  = scope.filter(i => i.status === 'In Progress').length;
+  const completed   = scope.filter(i => i.status === 'Completed').length;
 
   statTotal.textContent       = total;
   statNotStarted.textContent  = notStarted;
@@ -763,23 +867,26 @@ function updateSummary() {
 
 
 /* ----------------------------------------------------------
-   7c) UPDATE TAB COUNT BADGES
-   - For each category tab, count how many items belong to it
-     and write that number into its .tab-count badge.
-   - The "Dashboard" tab is special: it shows the TOTAL number
-     of items across every category.
-   - This always reads the raw `items` array — it does NOT
-     consider the search query or the status filter, so the
-     badges always show true totals.
+   7c) UPDATE SIDEBAR COUNT BADGES
+   - For each sidebar item, count how many items belong to that view
+     and write the number into its .tab-count badge.
+   - "Dashboard" is special: shows the TOTAL items across every category.
+   - "Drafts" is special: shows items where isDraft || Needs Details.
+   - Reads the raw `items` array — does NOT consider search or the
+     active status filter, so badges always show true totals.
    ---------------------------------------------------------- */
 function updateTabCounts() {
-  categoryTabs.forEach(tab => {
-    const category  = tab.dataset.category;
-    const countSpan = tab.querySelector('.tab-count');
+  sidebarItems.forEach(item => {
+    const category  = item.dataset.category;
+    const countSpan = item.querySelector('.tab-count');
     if (!countSpan) return;          // safety check
 
     if (category === 'Dashboard') {
       countSpan.textContent = items.length;
+    } else if (category === 'Drafts') {
+      // Same predicate as renderItems uses, so the badge and the list
+      // are always consistent.
+      countSpan.textContent = items.filter(isDraftLike).length;
     } else {
       countSpan.textContent = items.filter(i => i.category === category).length;
     }
@@ -858,6 +965,50 @@ function saveItems() {
   localStorage.setItem('dashboardItems', JSON.stringify(items));
 }
 
+// Count how many raw items lack each current-shape field. Used by both
+// loadItems() and the import handler so we can SHOW the user that old
+// data was upgraded — both via console.info on load and via a small
+// note appended to the import success alert.
+//
+// Returns null if nothing needed migrating, otherwise an object with
+// counts per field.
+function auditMigration(rawItems) {
+  if (!Array.isArray(rawItems)) return null;
+
+  let missingItemTypes    = 0;
+  let missingIsDraft      = 0;
+  let missingDetailStatus = 0;
+  let missingCreatedAt    = 0;
+  let renamedCategories   = 0;
+
+  rawItems.forEach(r => {
+    if (!r || typeof r !== 'object') return;
+    if (!Array.isArray(r.itemTypes))        missingItemTypes++;
+    if (typeof r.isDraft !== 'boolean')     missingIsDraft++;
+    if (typeof r.detailStatus !== 'string') missingDetailStatus++;
+    if (r.createdAt == null)                missingCreatedAt++;
+    if (CATEGORY_RENAMES[r.category])       renamedCategories++;
+  });
+
+  const anyMigrated =
+    missingItemTypes ||
+    missingIsDraft ||
+    missingDetailStatus ||
+    missingCreatedAt ||
+    renamedCategories;
+
+  if (!anyMigrated) return null;
+
+  return {
+    total: rawItems.length,
+    missingItemTypes,
+    missingIsDraft,
+    missingDetailStatus,
+    missingCreatedAt,
+    renamedCategories,
+  };
+}
+
 // Bring an arbitrary item object into the current shape:
 //   - rename old categories via CATEGORY_RENAMES (e.g. "eBay Tracker"
 //     -> "eBay Tracker / Selling")
@@ -914,7 +1065,17 @@ function loadItems() {
   }
   if (!Array.isArray(raw)) return [];
 
+  // Audit BEFORE normalizing so we know what was actually upgraded.
+  // Result is logged to the console so the user can verify migration
+  // in DevTools without us needing a visible toast on every load.
+  const audit = auditMigration(raw);
   const normalized = raw.map(normalizeItem);
+  if (audit) {
+    console.info(
+      `[Sion's Dashboard] Migrated localStorage items to current shape.`,
+      audit
+    );
+  }
 
   // Persist the migrated form so we never have to redo this work
   try {
@@ -927,11 +1088,21 @@ function loadItems() {
   return normalized;
 }
 
-// Programmatically switch to a different category tab
+// Programmatically switch to a different sidebar item / view.
+// If the target lives in the (possibly collapsed) "More" section,
+// expand More first so the active highlight is visible to the user.
 function switchToCategory(categoryName) {
-  categoryTabs.forEach(tab => {
-    if (tab.dataset.category === categoryName) {
-      tab.click();           // triggers the click handler above
+  const inMore =
+    categoryName !== 'Drafts' &&
+    !SIDEBAR_MAIN_ORDER.includes(categoryName) &&
+    categories.includes(categoryName);
+  if (inMore && typeof setSidebarMoreExpanded === 'function') {
+    setSidebarMoreExpanded(true);
+  }
+
+  sidebarItems.forEach(item => {
+    if (item.dataset.category === categoryName) {
+      item.click();           // triggers the sidebar click handler above
     }
   });
 }
@@ -972,20 +1143,27 @@ function showDashboardFeedback(message) {
 
 function updateSubmitButtonText() {
   const draftCheckbox = document.getElementById('item-draft');
-  const isDraftMode = !!(draftCheckbox && draftCheckbox.checked);
+  // `isDraft` is the internal field name; the UI says "Needs Details".
+  const markNeedsDetails = !!(draftCheckbox && draftCheckbox.checked);
   if (editingId !== null) {
-    submitBtn.textContent = isDraftMode ? 'Save Draft Changes' : 'Save Changes';
+    submitBtn.textContent = markNeedsDetails
+      ? 'Save Changes (Needs Details)'
+      : 'Save Changes';
   } else {
-    submitBtn.textContent = isDraftMode ? 'Save Draft' : 'Add Item';
+    submitBtn.textContent = markNeedsDetails
+      ? 'Save (Needs Details)'
+      : 'Add Item';
   }
 }
 
 function updateWelcomeSubmitText() {
   const draftCheckbox = document.getElementById('welcome-item-draft');
-  const isDraftMode = !!(draftCheckbox && draftCheckbox.checked);
+  const markNeedsDetails = !!(draftCheckbox && draftCheckbox.checked);
   const welcomeSubmitBtn = welcomeForm.querySelector('button[type="submit"]');
   if (welcomeSubmitBtn) {
-    welcomeSubmitBtn.textContent = isDraftMode ? 'Save Draft' : 'Add Item';
+    welcomeSubmitBtn.textContent = markNeedsDetails
+      ? 'Save (Needs Details)'
+      : 'Add Item';
   }
 }
 
@@ -1258,10 +1436,11 @@ function attachCategorySuggestion(opts) {
 // Pre-fill the form's Category dropdown with whatever tab the user
 // is currently on, so adding a new item under that tab is one step.
 // Skipped while editing (the dropdown holds the item being edited)
-// and skipped on the Dashboard tab (Dashboard isn't a real category).
+// and skipped on the special view tabs (Dashboard, Drafts) — they're
+// not real categories, so there's nothing meaningful to pre-fill.
 function syncCategoryDropdownToTab() {
   if (editingId !== null) return;
-  if (currentCategory === 'Dashboard') return;
+  if (currentCategory === 'Dashboard' || currentCategory === 'Drafts') return;
   document.getElementById('item-category').value = currentCategory;
 }
 
@@ -1339,27 +1518,68 @@ function renderCategoriesEverywhere() {
   renderItems();    // refreshes summary + tab count badges
 }
 
-// Rebuild the .categories tab nav from the current categories array.
-// Also refreshes the cached `categoryTabs` NodeList used elsewhere.
+// Names that live in the sidebar's "Main" section (in display order).
+// Anything in `categories[]` not in this set ends up in the "More"
+// section. "Drafts" is appended at the end of Main as a special view
+// — it's not in `categories[]` so it has to be hardcoded here.
+const SIDEBAR_MAIN_ORDER = ['Dashboard', 'Calendar', 'Schedule', 'Goals'];
+
+// Tiny factory for one sidebar item (<li><button>label + count badge</button></li>).
+// Used for both real categories AND the special "Drafts" view tab,
+// so they look and behave identically.
+function buildSidebarItem(name) {
+  const li = document.createElement('li');
+
+  const btn = document.createElement('button');
+  btn.className = 'sidebar-item';
+  btn.dataset.category = name;
+  btn.type = 'button';
+  if (name === currentCategory) btn.classList.add('active');
+
+  const label = document.createElement('span');
+  label.className = 'sidebar-item-label';
+  label.textContent = name;
+  btn.appendChild(label);
+
+  const count = document.createElement('span');
+  count.className = 'tab-count';
+  count.textContent = '0';
+  btn.appendChild(count);
+
+  li.appendChild(btn);
+  return li;
+}
+
+// Rebuild the sidebar lists from the current categories array. Refreshes
+// the cached `sidebarItems` NodeList used elsewhere. "Drafts" always
+// sits at the end of Main; everything not in SIDEBAR_MAIN_ORDER goes
+// into More (preserving the user's category-list order).
+//
+// Function name `renderCategoryTabs` is kept so existing callers
+// (renderCategoriesEverywhere, etc.) don't need to change.
 function renderCategoryTabs() {
-  categoriesNav.innerHTML = '';
-  categories.forEach(cat => {
-    const btn = document.createElement('button');
-    btn.className = 'category-tab';
-    btn.dataset.category = cat;
-    if (cat === currentCategory) btn.classList.add('active');
+  sidebarMainList.innerHTML = '';
+  sidebarMoreList.innerHTML = '';
 
-    // Tab label: "<name> <span class='tab-count'>0</span>"
-    btn.appendChild(document.createTextNode(cat + ' '));
-
-    const span = document.createElement('span');
-    span.className = 'tab-count';
-    span.textContent = '0';
-    btn.appendChild(span);
-
-    categoriesNav.appendChild(btn);
+  // Main section — only render Main items that actually exist in
+  // categories[] (e.g. user may have deleted "Goals" from their list).
+  // Drafts is always present since it's a view, not a category.
+  SIDEBAR_MAIN_ORDER.forEach(name => {
+    if (categories.includes(name)) {
+      sidebarMainList.appendChild(buildSidebarItem(name));
+    }
   });
-  categoryTabs = document.querySelectorAll('.category-tab');
+  sidebarMainList.appendChild(buildSidebarItem('Drafts'));
+
+  // More section — every category not already in Main, in the order
+  // they appear in categories[].
+  const mainSet = new Set(SIDEBAR_MAIN_ORDER);
+  categories.forEach(cat => {
+    if (mainSet.has(cat)) return;
+    sidebarMoreList.appendChild(buildSidebarItem(cat));
+  });
+
+  sidebarItems = document.querySelectorAll('.sidebar-item');
 }
 
 // Rebuild both <select> dropdowns (dashboard form + welcome form).
@@ -1443,6 +1663,14 @@ addCategoryForm.addEventListener('submit', (e) => {
   const raw = newCategoryInput.value.trim();
   if (!raw) return;
 
+  // Reserved view-tab name — Drafts is a special view, not a category.
+  if (raw.toLowerCase() === 'drafts') {
+    alert(
+      `"Drafts" is a reserved view. Items flagged Needs Details already show up there automatically — choose another name.`
+    );
+    return;
+  }
+
   // Reject duplicates (case-insensitive)
   const exists = categories.some(c => c.toLowerCase() === raw.toLowerCase());
   if (exists) {
@@ -1482,6 +1710,12 @@ function handleRenameCategory(oldName) {
   const newName = input.trim();
   if (!newName)            return;        // empty input — silently abort
   if (newName === oldName) return;        // unchanged — nothing to do
+
+  // Reserved view-tab name — Drafts can't be a real category.
+  if (newName.toLowerCase() === 'drafts') {
+    alert(`"Drafts" is a reserved view name. Choose another.`);
+    return;
+  }
 
   // Reject duplicates (case-insensitive, but allow same string)
   const exists = categories.some(c => c.toLowerCase() === newName.toLowerCase());
@@ -1648,7 +1882,7 @@ welcomeForm.addEventListener('reset', () => welcomeSuggestion.reset());
 
 // Keep submit-button labels honest. The draft checkbox is the source of
 // truth: toggling it should immediately retitle the button so the user
-// knows whether they're saving a Draft or a normal item.
+// knows whether they're saving a Needs Details item or a normal one.
 const itemDraftCheckbox    = document.getElementById('item-draft');
 const welcomeDraftCheckbox = document.getElementById('welcome-item-draft');
 if (itemDraftCheckbox)    itemDraftCheckbox.addEventListener('change',    updateSubmitButtonText);
@@ -1658,6 +1892,41 @@ if (welcomeDraftCheckbox) welcomeDraftCheckbox.addEventListener('change', update
 // after a reset using a 0ms timeout (lets the reset finish first).
 itemForm.addEventListener('reset',    () => setTimeout(updateSubmitButtonText, 0));
 welcomeForm.addEventListener('reset', () => setTimeout(updateWelcomeSubmitText, 0));
+
+
+/* ----------------------------------------------------------
+   11) SIDEBAR "MORE" TOGGLE (Phase 2)
+   - The More section is collapsed by default. Clicking the toggle
+     expands/collapses it; the state persists across reloads via
+     localStorage so the sidebar comes back the way you left it.
+   - If `currentCategory` is itself a More-section item on load,
+     auto-expand so the active item isn't hidden.
+   ---------------------------------------------------------- */
+const STORAGE_KEY_MORE_EXPANDED = 'sidebarMoreExpanded';
+
+function setSidebarMoreExpanded(expanded) {
+  sidebarMoreToggle.setAttribute('aria-expanded', String(expanded));
+  sidebarMoreToggle.classList.toggle('expanded', expanded);
+  sidebarMoreList.classList.toggle('collapsed', !expanded);
+  try {
+    localStorage.setItem(STORAGE_KEY_MORE_EXPANDED, expanded ? 'true' : 'false');
+  } catch (e) { /* ignore quota errors */ }
+}
+
+sidebarMoreToggle.addEventListener('click', () => {
+  const isExpanded = sidebarMoreToggle.getAttribute('aria-expanded') === 'true';
+  setSidebarMoreExpanded(!isExpanded);
+});
+
+// Restore the user's last collapsed/expanded preference. If their
+// currently selected view lives in the More section, force-expand so
+// the active item is visible right away.
+const savedMoreExpanded =
+  localStorage.getItem(STORAGE_KEY_MORE_EXPANDED) === 'true';
+const currentIsInMore =
+  currentCategory !== 'Drafts' &&
+  !SIDEBAR_MAIN_ORDER.includes(currentCategory);
+setSidebarMoreExpanded(savedMoreExpanded || currentIsInMore);
 
 
 // Initial render — replaces the hardcoded HTML with whatever is in the

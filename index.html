@@ -91,11 +91,14 @@
           <option value="Completed">Completed</option>
         </select>
 
-        <!-- Save-as-draft override: if checked, force detailStatus to
-             "Needs Details" regardless of what the auto rule would say. -->
+        <!-- "Mark as Needs Details" override — when checked, the item
+             is flagged Needs Details regardless of how many fields are
+             filled in (the user is explicitly saving partial work to
+             finish later). Internally stored as isDraft for backward
+             compatibility with older saves; the user never sees that name. -->
         <label class="draft-checkbox">
           <input type="checkbox" id="welcome-item-draft">
-          Save as draft (Needs Details)
+          Mark as Needs Details
         </label>
 
         <!-- Inline feedback after a successful add (auto-hides). -->
@@ -139,59 +142,64 @@
       </div>
     </header>
 
-    <!-- ===== SUMMARY (counts of all items across all categories) ===== -->
-    <!-- Numbers are filled in by JavaScript inside updateSummary(). -->
-    <section class="summary">
-      <div class="stat">
-        <div class="stat-label">Total Items</div>
-        <div class="stat-value" id="stat-total">0</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">Not Started</div>
-        <div class="stat-value stat-not-started" id="stat-not-started">0</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">In Progress</div>
-        <div class="stat-value stat-in-progress" id="stat-in-progress">0</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">Completed</div>
-        <div class="stat-value stat-completed" id="stat-completed">0</div>
-      </div>
-    </section>
+    <!-- ===== DASHBOARD BODY: sidebar (left) + main content (right) =====
+         Phase 2 layout: replaces the old top-tab navigation and the
+         four big summary cards. JS rebuilds the sidebar lists on load,
+         so the markup below is just empty <ul>s waiting to be filled. -->
+    <div class="dashboard-body">
 
-    <!-- Category tabs (clicking one filters the items list).
-         The .tab-count span shows how many items are in that category;
-         JS populates the number inside updateTabCounts(). -->
-    <nav class="categories">
-      <button class="category-tab active" data-category="Dashboard">
-        Dashboard <span class="tab-count">0</span>
-      </button>
-      <button class="category-tab" data-category="Calendar">
-        Calendar <span class="tab-count">0</span>
-      </button>
-      <button class="category-tab" data-category="Learning">
-        Learning <span class="tab-count">0</span>
-      </button>
-      <button class="category-tab" data-category="Schedule">
-        Schedule <span class="tab-count">0</span>
-      </button>
-      <button class="category-tab" data-category="Goals">
-        Goals <span class="tab-count">0</span>
-      </button>
-      <button class="category-tab" data-category="Health/Gym">
-        Health/Gym <span class="tab-count">0</span>
-      </button>
-      <button class="category-tab" data-category="Addiction Tracker">
-        Addiction Tracker <span class="tab-count">0</span>
-      </button>
-      <button class="category-tab" data-category="eBay Tracker / Selling">
-        eBay Tracker / Selling <span class="tab-count">0</span>
-      </button>
-      <button class="category-tab" data-category="Notes">
-        Notes <span class="tab-count">0</span>
-      </button>
-    </nav>
+      <!-- LEFT SIDEBAR: Gmail-style category nav -->
+      <aside id="sidebar" class="sidebar">
+        <!-- "Main" section — priority views Sion picked.
+             Dashboard, Calendar, Schedule, Goals are real categories;
+             Drafts is a special view tab. -->
+        <div class="sidebar-section">
+          <h3 class="sidebar-section-title">Main</h3>
+          <ul id="sidebar-main" class="sidebar-list"></ul>
+        </div>
+
+        <!-- "More" section — collapsible group with everything else.
+             Drafts is NEVER in here; it lives in Main. -->
+        <div class="sidebar-section">
+          <button
+            id="sidebar-more-toggle"
+            class="sidebar-more-toggle"
+            type="button"
+            aria-expanded="false">
+            <span class="sidebar-more-chevron" aria-hidden="true">▸</span>
+            <span class="sidebar-more-label">More</span>
+          </button>
+          <ul id="sidebar-more" class="sidebar-list sidebar-more collapsed"></ul>
+        </div>
+      </aside>
+
+      <!-- RIGHT MAIN CONTENT -->
+      <div class="main-content">
+
+        <!-- Compact stat filters — replaces both the old big stat cards
+             AND the duplicate filter-pill row. Each chip shows a count
+             for that status WITHIN the current view (sidebar selection),
+             and clicking it filters the items list. IDs preserved
+             (stat-total / stat-not-started / stat-in-progress / stat-completed)
+             so updateSummary() keeps working unchanged. -->
+        <div id="stat-filters" class="stat-filters">
+          <button class="stat-filter active" data-filter="All" type="button">
+            <span class="stat-filter-label">Total</span>
+            <span class="stat-filter-count" id="stat-total">0</span>
+          </button>
+          <button class="stat-filter" data-filter="Not Started" type="button">
+            <span class="stat-filter-label">Not Started</span>
+            <span class="stat-filter-count stat-not-started" id="stat-not-started">0</span>
+          </button>
+          <button class="stat-filter" data-filter="In Progress" type="button">
+            <span class="stat-filter-label">In Progress</span>
+            <span class="stat-filter-count stat-in-progress" id="stat-in-progress">0</span>
+          </button>
+          <button class="stat-filter" data-filter="Completed" type="button">
+            <span class="stat-filter-label">Completed</span>
+            <span class="stat-filter-count stat-completed" id="stat-completed">0</span>
+          </button>
+        </div>
 
     <!-- ===== MANAGE CATEGORIES PANEL =====
          Toggled by the header's "Manage Categories" button.
@@ -274,11 +282,14 @@
             <option value="Completed">Completed</option>
           </select>
 
-          <!-- Save-as-draft override: if checked, force detailStatus to
-               "Needs Details" regardless of what the auto rule would say. -->
+          <!-- "Mark as Needs Details" override — when checked, the item
+               is flagged Needs Details regardless of how many fields are
+               filled in (the user is explicitly saving partial work to
+               finish later). Internally stored as isDraft for backward
+               compatibility with older saves; the user never sees that name. -->
           <label class="draft-checkbox">
             <input type="checkbox" id="item-draft">
-            Save as draft (Needs Details)
+            Mark as Needs Details
           </label>
 
           <!-- Inline confirmation after a successful add/update (auto-hides).
@@ -308,13 +319,8 @@
           placeholder="Search items..."
         />
 
-        <!-- Status filter pills (which items are visible by status) -->
-        <div class="filters" id="filters">
-          <button class="filter-pill active" data-filter="All">All</button>
-          <button class="filter-pill" data-filter="Not Started">Not Started</button>
-          <button class="filter-pill" data-filter="In Progress">In Progress</button>
-          <button class="filter-pill" data-filter="Completed">Completed</button>
-        </div>
+        <!-- Status filter pills removed in Phase 2 — status filtering now
+             lives in the .stat-filters row above the dashboard grid. -->
 
         <!-- Sort control — changes only the visible order of items -->
         <div class="sort-row">
@@ -341,6 +347,8 @@
         </p>
       </div>
 
+    </div>
+      </div>
     </div>
   </section>
 
